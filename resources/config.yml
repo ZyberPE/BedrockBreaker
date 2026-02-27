@@ -1,0 +1,9 @@
+tnt-limit: 5
+bedrock-break-chance: 80
+light-cooldown-seconds: 5
+
+messages:
+  tnt-limit: "§cYou cannot place more than 5 TNT at once!"
+  cooldown: "§cYou must wait before lighting TNT again!"
+  bedrock-broken: "§aBedrock has been destroyed!"
+  bedrock-failed: "§cThe bedrock resisted the explosion!"
