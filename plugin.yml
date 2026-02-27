@@ -1,0 +1,11 @@
+name: BedrockBreaker
+main: BedrockBreaker\Main
+version: 1.0.0
+api: 5.0.0
+author: ZyberPE
+description: TNT based bedrock breaking system with limits and cooldown.
+
+permissions:
+  bedrockbreaker.use:
+    description: Allows usage of BedrockBreaker features
+    default: true
