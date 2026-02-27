@@ -6,13 +6,15 @@ namespace BedrockBreaker;
 
 use pocketmine\plugin\PluginBase;
 use pocketmine\event\Listener;
+
 use pocketmine\event\block\BlockPlaceEvent;
-use pocketmine\event\block\BlockIgniteEvent;
-use pocketmine\event\entity\ExplosionPrimeEvent;
+use pocketmine\event\player\PlayerInteractEvent;
 use pocketmine\event\entity\EntityExplodeEvent;
+
 use pocketmine\player\Player;
-use pocketmine\block\VanillaBlocks;
 use pocketmine\block\BlockTypeIds;
+use pocketmine\block\VanillaBlocks;
+use pocketmine\item\VanillaItems;
 
 class Main extends PluginBase implements Listener {
 
@@ -45,7 +47,7 @@ class Main extends PluginBase implements Listener {
             $name = $player->getName();
             $limit = (int)$this->getConfig()->get("tnt-limit");
 
-            $this->placedTNT[$name] = ($this->placedTNT[$name] ?? 0);
+            $this->placedTNT[$name] = $this->placedTNT[$name] ?? 0;
 
             if($this->placedTNT[$name] >= $limit){
                 $event->cancel();
@@ -58,33 +60,41 @@ class Main extends PluginBase implements Listener {
     }
 
     /* -------------------------
-       FLINT & STEEL COOLDOWN
+       FLINT & STEEL COOLDOWN (API 5 SAFE)
     --------------------------*/
 
-    public function onIgnite(BlockIgniteEvent $event): void {
+    public function onInteract(PlayerInteractEvent $event): void {
 
         $player = $event->getPlayer();
-        if(!$player instanceof Player){
-            return;
-        }
+        $item = $event->getItem();
+        $block = $event->getBlock();
 
         if(!$player->hasPermission("bedrockbreaker.use")){
             return;
         }
 
-        $name = $player->getName();
-        $cooldown = (int)$this->getConfig()->get("light-cooldown-seconds");
-        $time = time();
-
-        if(isset($this->lightCooldown[$name])){
-            if(($time - $this->lightCooldown[$name]) < $cooldown){
-                $event->cancel();
-                $player->sendMessage($this->getConfig()->get("messages")["cooldown"]);
-                return;
-            }
+        if($block === null){
+            return;
         }
 
-        $this->lightCooldown[$name] = $time;
+        // Check if using Flint & Steel on TNT
+        if($item->getTypeId() === VanillaItems::FLINT_AND_STEEL()->getTypeId()
+            && $block->getTypeId() === BlockTypeIds::TNT){
+
+            $name = $player->getName();
+            $cooldown = (int)$this->getConfig()->get("light-cooldown-seconds");
+            $time = time();
+
+            if(isset($this->lightCooldown[$name])){
+                if(($time - $this->lightCooldown[$name]) < $cooldown){
+                    $event->cancel();
+                    $player->sendMessage($this->getConfig()->get("messages")["cooldown"]);
+                    return;
+                }
+            }
+
+            $this->lightCooldown[$name] = $time;
+        }
     }
 
     /* -------------------------
@@ -107,7 +117,7 @@ class Main extends PluginBase implements Listener {
             }
         }
 
-        // Reset TNT count after explosion
+        // Reduce TNT counter globally (simple reset logic)
         foreach($this->placedTNT as $player => $count){
             if($count > 0){
                 $this->placedTNT[$player]--;
