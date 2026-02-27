@@ -10,19 +10,26 @@ use pocketmine\event\Listener;
 use pocketmine\event\block\BlockPlaceEvent;
 use pocketmine\event\player\PlayerInteractEvent;
 use pocketmine\event\entity\EntityExplodeEvent;
+use pocketmine\event\entity\EntitySpawnEvent;
 
 use pocketmine\player\Player;
 use pocketmine\block\BlockTypeIds;
 use pocketmine\block\VanillaBlocks;
 use pocketmine\item\VanillaItems;
 
+use pocketmine\entity\Entity;
+use pocketmine\entity\object\PrimedTNT;
+
 class Main extends PluginBase implements Listener {
 
     /** @var array<string, int> */
-    private array $placedTNT = [];
+    private array $activeTNT = [];
 
     /** @var array<string, int> */
     private array $lightCooldown = [];
+
+    /** @var array<int, string> */
+    private array $tntOwners = [];
 
     public function onEnable(): void {
         $this->saveDefaultConfig();
@@ -36,31 +43,31 @@ class Main extends PluginBase implements Listener {
     public function onPlace(BlockPlaceEvent $event): void {
 
         $player = $event->getPlayer();
-        $block = $event->getBlock();
 
         if(!$player->hasPermission("bedrockbreaker.use")){
             return;
         }
 
-        if($block->getTypeId() === BlockTypeIds::TNT){
+        foreach($event->getTransaction()->getBlocks() as [$x, $y, $z, $block]){
 
-            $name = $player->getName();
-            $limit = (int)$this->getConfig()->get("tnt-limit");
+            if($block->getTypeId() === BlockTypeIds::TNT){
 
-            $this->placedTNT[$name] = $this->placedTNT[$name] ?? 0;
+                $name = $player->getName();
+                $limit = (int)$this->getConfig()->get("tnt-limit");
 
-            if($this->placedTNT[$name] >= $limit){
-                $event->cancel();
-                $player->sendMessage($this->getConfig()->get("messages")["tnt-limit"]);
-                return;
+                $this->activeTNT[$name] = $this->activeTNT[$name] ?? 0;
+
+                if($this->activeTNT[$name] >= $limit){
+                    $event->cancel();
+                    $player->sendMessage($this->getConfig()->get("messages")["tnt-limit"]);
+                    return;
+                }
             }
-
-            $this->placedTNT[$name]++;
         }
     }
 
     /* -------------------------
-       FLINT & STEEL COOLDOWN (API 5 SAFE)
+       FLINT & STEEL COOLDOWN + OWNER TRACK
     --------------------------*/
 
     public function onInteract(PlayerInteractEvent $event): void {
@@ -77,7 +84,6 @@ class Main extends PluginBase implements Listener {
             return;
         }
 
-        // Check if using Flint & Steel on TNT
         if($item->getTypeId() === VanillaItems::FLINT_AND_STEEL()->getTypeId()
             && $block->getTypeId() === BlockTypeIds::TNT){
 
@@ -94,34 +100,71 @@ class Main extends PluginBase implements Listener {
             }
 
             $this->lightCooldown[$name] = $time;
+
+            // Increase active TNT count
+            $this->activeTNT[$name] = ($this->activeTNT[$name] ?? 0) + 1;
         }
     }
 
     /* -------------------------
-       BEDROCK BREAK LOGIC
+       TRACK TNT ENTITY OWNER
+    --------------------------*/
+
+    public function onSpawn(EntitySpawnEvent $event): void {
+
+        $entity = $event->getEntity();
+
+        if(!$entity instanceof PrimedTNT){
+            return;
+        }
+
+        $nearest = $entity->getWorld()->getNearestEntity(
+            $entity->getPosition(),
+            5,
+            Player::class
+        );
+
+        if($nearest instanceof Player){
+            $this->tntOwners[$entity->getId()] = $nearest->getName();
+        }
+    }
+
+    /* -------------------------
+       BEDROCK BREAK + COUNT REDUCE
     --------------------------*/
 
     public function onExplode(EntityExplodeEvent $event): void {
 
-        $chance = (int)$this->getConfig()->get("bedrock-break-chance");
-        $blocks = $event->getBlockList();
-        $world = $event->getEntity()->getWorld();
+        $entity = $event->getEntity();
 
-        foreach($blocks as $block){
-
-            if($block->getTypeId() === BlockTypeIds::BEDROCK){
-
-                if(mt_rand(1, 100) <= $chance){
-                    $world->setBlock($block->getPosition(), VanillaBlocks::AIR());
-                }
-            }
+        if(!$entity instanceof PrimedTNT){
+            return;
         }
 
-        // Reduce TNT counter globally (simple reset logic)
-        foreach($this->placedTNT as $player => $count){
-            if($count > 0){
-                $this->placedTNT[$player]--;
+        $owner = $this->tntOwners[$entity->getId()] ?? null;
+
+        if($owner !== null){
+
+            $chance = (int)$this->getConfig()->get("bedrock-break-chance");
+            $blocks = $event->getBlockList();
+            $world = $entity->getWorld();
+
+            foreach($blocks as $block){
+
+                if($block->getTypeId() === BlockTypeIds::BEDROCK){
+
+                    if(mt_rand(1, 100) <= $chance){
+                        $world->setBlock($block->getPosition(), VanillaBlocks::AIR());
+                    }
+                }
             }
+
+            // Reduce only owner's TNT count
+            if(isset($this->activeTNT[$owner]) && $this->activeTNT[$owner] > 0){
+                $this->activeTNT[$owner]--;
+            }
+
+            unset($this->tntOwners[$entity->getId()]);
         }
     }
 }
